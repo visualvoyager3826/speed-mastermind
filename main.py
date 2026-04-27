@@ -5,83 +5,85 @@ import random
 # App Setup
 st.set_page_config(page_title="Speed Mastermind", page_icon="⚡", layout="wide")
 
-# Styling
-st.markdown("""
-    <style>
-    .main { background-color: #0e1117; color: white; }
-    .stButton>button { width: 100%; background: linear-gradient(45deg, #00e676, #00c853); color: black; font-weight: bold; border: none; padding: 15px; }
-    </style>
-    """, unsafe_allow_html=True)
-
 API_KEY = "07af93a1-ca72-4828-a7e0-f646ab4c9647"
 
 # --- API FUNCTIONS ---
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def get_matches():
-    url = f"https://api.cricketdata.org/v1/matches?apikey={API_KEY}&offset=0"
+    # Try current matches endpoint
+    url = f"https://api.cricketdata.org/v1/currentMatches?apikey={API_KEY}&offset=0"
     try:
-        data = requests.get(url).json()
-        if data.get("status") == "success":
-            return {m["name"]: m["id"] for m in data["data"][:10]}
-    except: return {}
-    return {}
+        response = requests.get(url)
+        data = response.json()
+        match_list = {}
+        if "data" in data:
+            for m in data["data"]:
+                name = f"{m.get('name', 'Unknown')} ({m.get('status', 'Live')})"
+                match_list[name] = m.get("id")
+        return match_list
+    except Exception as e:
+        return {"Error": str(e)}
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def get_players(match_id):
     url = f"https://api.cricketdata.org/v1/match_squad?apikey={API_KEY}&id={match_id}"
     try:
-        data = requests.get(url).json()
+        response = requests.get(url)
+        data = response.json()
         all_players = []
-        if data.get("status") == "success":
+        if "data" in data:
+            # Iterating through teams
             for team in data["data"]:
-                for p in team.get("players", []):
-                    all_players.append(p["name"])
+                players_list = team.get("players", [])
+                for p in players_list:
+                    all_players.append(p.get("name"))
         return sorted(list(set(all_players)))
-    except: return []
+    except:
+        return []
 
 # --- UI ---
 st.title("⚡ SPEED MASTERMIND")
-st.subheader("Mega GL Team Generator (Real-Time Squad)")
+st.markdown("---")
 
 matches = get_matches()
-if not matches:
-    st.error("Matches load nahi ho rahe. API check karein.")
+
+if not matches or "Error" in matches:
+    st.error(f"API se data nahi aa raha. Check: {matches.get('Error', 'Unknown Error')}")
+    st.info("💡 Tip: Agar live matches nahi hain, toh API empty list bhejti hai.")
 else:
-    match_choice = st.selectbox("🏏 Match Choose Karein:", list(matches.keys()))
-    squad = get_players(matches[match_choice])
-
-    if not squad:
-        st.warning("Squad abhi announce nahi hua. Neeche manual players daalein.")
-        squad = st.text_area("Sabb players ke naam daalo (comma separated):").split(",")
-
-    # --- STRATEGY SECTION ---
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        locks = st.multiselect("🔒 LOCKS (Hamesha rahenge):", squad)
-    with col2:
-        trumps = st.multiselect("🃏 TRUMPS (Gamble players):", squad)
-    with col3:
-        favs = st.multiselect("⭐ FAVOURITES:", squad)
-
-    num_teams = st.slider("Kitni Teams Banani Hain?", 1, 20, 11)
-
-    if st.button("GENERATE TEAMS NOW 🔥"):
-        if len(squad) < 11:
-            st.error("Kam se kam 11 players hone chahiye!")
-        else:
-            st.balloons()
-            for i in range(num_teams):
-                # Core Logic: Combine Locks + Random from remaining squad
-                remaining_needed = 11 - len(locks)
-                other_pool = [p for p in squad if p not in locks]
-                
-                # Mixing logic
-                random.shuffle(other_pool)
-                team = list(locks) + other_pool[:remaining_needed]
-                
-                # Show Team
-                with st.expander(f"📋 TEAM {i+1}"):
-                    st.write(", ".join(team))
-                    st.caption(f"C: {random.choice(team)} | VC: {random.choice(team)}")
-
-st.info("Note: Ek baar GitHub par Commit karne ke baad 30 seconds wait karein, Streamlit apne aap update ho jayega.")
+    match_choice = st.selectbox("🏏 Select Match:", list(matches.keys()))
+    m_id = matches[match_choice]
+    
+    if m_id:
+        squad = get_players(m_id)
+        
+        if not squad:
+            st.warning("⚠️ Squad abhi tak announce nahi hua hai.")
+            manual_input = st.text_area("Squad nahi mila? Yahan players ke naam comma (,) daal kar likhein:")
+            if manual_input:
+                squad = [name.strip() for name in manual_input.split(",")]
+        
+        if squad:
+            col1, col2 = st.columns(2)
+            with col1:
+                locks = st.multiselect("🔒 LOCKS (Teams mein fix rahenge):", squad)
+                num_teams = st.number_input("Kitni Teams Banani Hain?", 1, 100, 11)
+            with col2:
+                trumps = st.multiselect("🃏 TRUMPS (Risky players):", squad)
+            
+            if st.button("GENERATE TEAMS NOW 🔥"):
+                if len(squad) < 11:
+                    st.error("Kam se kam 11 players list mein hone chahiye!")
+                else:
+                    st.balloons()
+                    for i in range(num_teams):
+                        # Simple Random Logic with Locks
+                        pool = [p for p in squad if p not in locks]
+                        needed = 11 - len(locks)
+                        random.shuffle(pool)
+                        final_team = list(locks) + pool[:needed]
+                        
+                        with st.expander(f"📋 TEAM {i+1}"):
+                            st.write(" , ".join(final_team))
+                            st.caption(f"Capt: {random.choice(final_team)} | VC: {random.choice(final_team)}")
+                            
